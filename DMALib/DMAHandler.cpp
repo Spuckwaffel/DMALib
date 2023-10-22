@@ -62,7 +62,7 @@ DMAHandler::DMAHandler(const wchar_t* wname)
 		LPSTR argv[] = { arg1, arg2, arg3 };
 		DWORD argc = sizeof(argv) / sizeof(LPSTR);
 
-		if(!VMMDLL_Initialize(3, argv))
+		if(!VMMDLL_Initialize(argc, argv))
 		{
 			log("ERROR: Initialization failed! Is the DMA in use or disconnected?");
 		}
