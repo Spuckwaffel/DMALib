@@ -103,9 +103,10 @@ public:
 	 * \brief pattern scans the text section and returns 0 if unsuccessful
 	 * \param pattern the pattern
 	 * \param mask the mask
+	 * \param returnCSOffset in case your pattern leads to a xxx, cs:offset, it will return the address of the global variable instead
 	 * \return the address
 	 */
-	ULONG64 patternScan(const char* pattern, const std::string& mask);
+	ULONG64 patternScan(const char* pattern, const std::string& mask, bool returnCSOffset = true);
 
 	/**
 	 * \brief closes the DMA and sets DMA_INITIALIZED to FALSE

@@ -126,7 +126,7 @@ bool DMAHandler::write(const ULONG64 address, const ULONG64 buffer, const SIZE_T
 }
 
 
-ULONG64 DMAHandler::patternScan(const char* pattern, const std::string& mask)
+ULONG64 DMAHandler::patternScan(const char* pattern, const std::string& mask, bool returnCSOffset)
 {
 	assertNoInit();
 	//technically not write if you use the same pattern but once with RVA flag and once without
@@ -197,9 +197,8 @@ ULONG64 DMAHandler::patternScan(const char* pattern, const std::string& mask)
 			continue;
 
 		const uint64_t uAddr = reinterpret_cast<uint64_t>(addr);
-		//TODO: MARK this false if your SIG does not point to some blabla, cs:offset
-		bool g = true;
-		if (g)
+
+		if (returnCSOffset)
 		{
 			const auto res = vaStart + i + *reinterpret_cast<int*>(uAddr + 3) + 7;
 			patternMap.insert(std::pair(pattern, res));
