@@ -2,6 +2,9 @@
 #include <string>
 #include <Windows.h>
 
+// set to FALSE if you dont want to track the total read size of the DMA
+#define COUNT_TOTAL_READSIZE TRUE
+
 class DMAHandler
 {
 	// Static variables, shared over all instances
@@ -16,6 +19,9 @@ class DMAHandler
 	static inline LibModules modules{};
 
 	static inline BOOLEAN DMA_INITIALIZED = FALSE;
+
+	// Counts the size of the reads in total. Reset every frame preferrably for memory tracking
+	static inline DWORD64 readSize = 0;
 
 	// Nonstatic variables, different for each class object on purpose, in case the user tries to access
 	// multiple processes
@@ -112,4 +118,12 @@ public:
 	 * \brief closes the DMA and sets DMA_INITIALIZED to FALSE
 	 */
 	static void closeDMA();
+
+#if COUNT_TOTAL_READSIZE
+
+	static DWORD64 getTotalReadSize();
+
+	static void resetReadSize();
+
+#endif
 };

@@ -27,31 +27,31 @@ void DMAHandler::log(const char* fmt, ...)
 
 void DMAHandler::assertNoInit() const
 {
-	if(!DMA_INITIALIZED || PROCESS_INITIALIZED)
+	if (!DMA_INITIALIZED || PROCESS_INITIALIZED)
 	{
 		log("DMA or process not inizialized!");
 		throw new std::string("DMA not inizialized!");
 	}
-		
+
 }
 
 DMAHandler::DMAHandler(const wchar_t* wname)
 {
-	if(!DMA_INITIALIZED)
+	if (!DMA_INITIALIZED)
 	{
 		log("loading libraries...");
 		modules.VMM = LoadLibraryA("vmm.dll");
 		modules.FTD3XX = LoadLibraryA("FTD3XX.dll");
 		modules.LEECHCORE = LoadLibraryA("leechcore.dll");
 
-		if(!modules.VMM || !modules.FTD3XX || !modules.LEECHCORE)
+		if (!modules.VMM || !modules.FTD3XX || !modules.LEECHCORE)
 		{
 			log("ERROR: could not load a library:");
 			log("vmm: %p\n", modules.VMM);
 			log("ftd: %p\n", modules.FTD3XX);
 			log("leech: %p\n", modules.LEECHCORE);
 		}
-		
+
 
 		log("inizializing...");
 
@@ -62,7 +62,7 @@ DMAHandler::DMAHandler(const wchar_t* wname)
 		LPSTR argv[] = { arg1, arg2, arg3 };
 		DWORD argc = sizeof(argv) / sizeof(LPSTR);
 
-		if(!VMMDLL_Initialize(argc, argv))
+		if (!VMMDLL_Initialize(3, argv))
 		{
 			log("ERROR: Initialization failed! Is the DMA in use or disconnected?");
 		}
@@ -109,6 +109,7 @@ ULONG64 DMAHandler::getBaseAddress()
 {
 	if (!processInfo.base)
 		processInfo.base = VMMDLL_ProcessGetModuleBase(processInfo.pid, const_cast<LPWSTR>(processInfo.wname));
+
 	return processInfo.base;
 }
 
@@ -116,7 +117,15 @@ void DMAHandler::read(const ULONG64 address, const ULONG64 buffer, const SIZE_T 
 {
 	assertNoInit();
 	DWORD dwBytesRead = 0;
+
+#if COUNT_TOTAL_READSIZE
+	readSize += size;
+#endif
+
 	VMMDLL_MemReadEx(processInfo.pid, address, reinterpret_cast<PBYTE>(buffer), size, &dwBytesRead, VMMDLL_FLAG_NOCACHE | VMMDLL_FLAG_NOPAGING | VMMDLL_FLAG_ZEROPAD_ON_FAIL | VMMDLL_FLAG_NOPAGING_IO);
+
+	if (dwBytesRead != size)
+		log("Didnt read all bytes requested! Only read %llu/%llu bytes!", dwBytesRead, size);
 }
 
 bool DMAHandler::write(const ULONG64 address, const ULONG64 buffer, const SIZE_T size) const
@@ -218,3 +227,18 @@ void DMAHandler::closeDMA()
 	DMA_INITIALIZED = FALSE;
 	VMMDLL_Close();
 }
+
+#if COUNT_TOTAL_READSIZE
+
+DWORD64 DMAHandler::getTotalReadSize()
+{
+	return readSize;
+}
+
+void DMAHandler::resetReadSize()
+{
+	log("Bytes read since last reset: %llu B, %llu KB, %llu MB", readSize, readSize / 1024, readSize / 1024 / 1024);
+	readSize = 0;
+}
+
+#endif
