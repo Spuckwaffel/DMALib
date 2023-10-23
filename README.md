@@ -9,4 +9,4 @@ This is just a small library which contains the basic support for your DMA inclu
 - good documentation and clean code
 
 Feel free to modify the code or make it better. Replace the example dlls with your own dlls.
-The program expects you to have the dlls at the root directory when shipping the program. 
+The program expects you to have the dlls FTD3XX.dll, leechcore.dll and vmm.dll (download them from your DMA supplier) at the root directory when shipping the program. 
