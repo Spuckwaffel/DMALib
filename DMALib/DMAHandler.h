@@ -28,8 +28,8 @@ class DMAHandler
 	struct BaseProcessInfo
 	{
 		DWORD pid = 0;
-		std::string name = nullptr;
-		const wchar_t* wname = nullptr;
+		std::string name;
+		const wchar_t* wname;
 		ULONG64 base = 0;
 	};
 
