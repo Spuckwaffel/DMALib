@@ -6,7 +6,7 @@
 
 int main()
 {
-
+	printf("hello");
 	auto target = DMAHandler(L"MallocTest.exe");
 
 	if(!target.isInitialized())
