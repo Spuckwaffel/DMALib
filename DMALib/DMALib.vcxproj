@@ -141,6 +141,10 @@
   <ItemGroup>
     <ClInclude Include="DMAHandler.h" />
   </ItemGroup>
+  <ItemGroup>
+    <Library Include="libs\leechcore.lib" />
+    <Library Include="libs\vmm.lib" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
