@@ -363,3 +363,6 @@ MigrationBackup/
 FodyWeavers.xsd
 /DMALib/libs/leechcore.lib
 /DMALib/libs/vmm.lib
+/DMALib/FTD3XX.dll
+/DMALib/leechcore.dll
+/DMALib/vmm.dll
