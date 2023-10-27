@@ -5,6 +5,7 @@ This is just a small library which contains the basic support for your DMA inclu
 - memory writing
 - getting PID and Base Address
 - pattern scanning
+- scatter reading
 - logging
 - good documentation and clean code
 
