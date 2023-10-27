@@ -1,10 +1,12 @@
 #include "DMAHandler.h"
 
+#include <fstream>
 #include <chrono>
 #include <iostream>
 #include <leechcore.h>
 #include <unordered_map>
-#include <vmmdll.h>
+#include <filesystem>
+
 
 void DMAHandler::log(const char* fmt, ...)
 {
@@ -27,7 +29,7 @@ void DMAHandler::log(const char* fmt, ...)
 
 void DMAHandler::assertNoInit() const
 {
-	if (!DMA_INITIALIZED || PROCESS_INITIALIZED)
+	if (!DMA_INITIALIZED || !PROCESS_INITIALIZED)
 	{
 		log("DMA or process not inizialized!");
 		throw new std::string("DMA not inizialized!");
@@ -35,7 +37,7 @@ void DMAHandler::assertNoInit() const
 
 }
 
-DMAHandler::DMAHandler(const wchar_t* wname)
+DMAHandler::DMAHandler(const wchar_t* wname, bool memMap)
 {
 	if (!DMA_INITIALIZED)
 	{
@@ -52,17 +54,37 @@ DMAHandler::DMAHandler(const wchar_t* wname)
 			log("leech: %p\n", modules.LEECHCORE);
 		}
 
-
 		log("inizializing...");
 
-		char arg1[] = "-v";
-		char arg2[] = "-device";
-		char arg3[] = "fpga";
+		LPSTR args[] = { (LPSTR)"", (LPSTR)"-device", (LPSTR)"fpga", (LPSTR)"-v", "", ""};
+		DWORD argc = 4;
 
-		LPSTR argv[] = { arg1, arg2, arg3 };
-		DWORD argc = sizeof(argv) / sizeof(LPSTR);
+		if (memMap)
+		{
+			DMA_MEMMAP = true;
+			log("dumping memory map to file...");
+			if (!this->DumpMemoryMap())
+			{
+				log("ERROR: Could not dump memory map!");
+				log("Defaulting to no memory map!");
+			}
+			else
+			{
+				log("Dumped memory map!");
+				//Get Path to executable
+				char buffer[MAX_PATH];
+				GetModuleFileNameA(NULL, buffer, MAX_PATH);
+				//Remove the executable name
+				std::string directoryPath = std::filesystem::path(buffer).parent_path().string();
+				directoryPath += "\\mmap.txt";
 
-		if (!VMMDLL_Initialize(argc, argv))
+				//Add the memory map to the arguments and increase arg count.
+				args[argc++] = (LPSTR)"-memmap";
+				args[argc++] = (LPSTR)directoryPath.c_str();
+			}
+		}
+		this->vHandle = VMMDLL_Initialize(argc, args);
+		if (!this->vHandle)
 		{
 			log("ERROR: Initialization failed! Is the DMA in use or disconnected?");
 			return;
@@ -70,8 +92,8 @@ DMAHandler::DMAHandler(const wchar_t* wname)
 
 		ULONG64 FPGA_ID, DEVICE_ID;
 
-		VMMDLL_ConfigGet(LEECHCORE_OPT_FPGA_FPGA_ID, &FPGA_ID);
-		VMMDLL_ConfigGet(LEECHCORE_OPT_FPGA_DEVICE_ID, &DEVICE_ID);
+		VMMDLL_ConfigGet(this->vHandle, LC_OPT_FPGA_FPGA_ID, &FPGA_ID);
+		VMMDLL_ConfigGet(this->vHandle, LC_OPT_FPGA_DEVICE_ID, &DEVICE_ID);
 
 		log("FPGA ID: %llu", FPGA_ID);
 		log("DEVICE ID: %llu", DEVICE_ID);
@@ -86,17 +108,70 @@ DMAHandler::DMAHandler(const wchar_t* wname)
 
 	processInfo.name = str;
 	processInfo.wname = wname;
-	if (!VMMDLL_PidGetFromName(const_cast<char*>(processInfo.name.c_str()), &processInfo.pid))
+	if (!VMMDLL_PidGetFromName(this->vHandle, const_cast<char*>(processInfo.name.c_str()), &processInfo.pid))
 	{
 		log("WARN: Process with name %s not found!", processInfo.name.c_str());
 	}
 	else
 		PROCESS_INITIALIZED = TRUE;
 
+	
+	if(DMA_MEMMAP)
+		DMA_MEMMAP_DUMPED = true;
+}
+
+DMAHandler::~DMAHandler()
+{
+	if (DMA_INITIALIZED)
+	{
+		DMA_INITIALIZED = false;
+		VMMDLL_Close(this->vHandle);
+	}
+}
+
+bool DMAHandler::DumpMemoryMap()
+{
+	LPSTR args[] = { (LPSTR)"", (LPSTR)"-device", (LPSTR)"fpga", (LPSTR)"-v" };
+	VMM_HANDLE handle = VMMDLL_Initialize(3, args);
+	if (handle) {
+		PVMMDLL_MAP_PHYSMEM pPhysMemMap = NULL;
+		auto bResult = VMMDLL_Map_GetPhysMem(handle, &pPhysMemMap);
+		if (bResult) {
+			if (pPhysMemMap->dwVersion != VMMDLL_MAP_PHYSMEM_VERSION) {
+				log("Invalid VMM Map Version\n");
+				VMMDLL_MemFree(pPhysMemMap);
+				VMMDLL_Close(handle);
+				return false;
+			}
+
+			//Dump map to file
+			std::stringstream sb;
+			for (DWORD i = 0; i < pPhysMemMap->cMap; i++) {
+				sb << std::setfill('0') << std::setw(4) << i << "  " << std::hex << pPhysMemMap->pMap[i].pa << "  -  " << (pPhysMemMap->pMap[i].pa + pPhysMemMap->pMap[i].cb - 1) << "  ->  " << pPhysMemMap->pMap[i].pa << std::endl;
+			}
+			std::ofstream nFile("mmap.txt");
+			nFile << sb.str();
+			nFile.close();
+
+			VMMDLL_MemFree(pPhysMemMap);
+			log("Successfully dumped memory map to file!");
+			//Little sleep to make sure it's written to file.
+			Sleep(3000);
+		}
+		VMMDLL_Close(handle);
+		return true;
+	}
+	else
+		return false;
 }
 
 bool DMAHandler::isInitialized() const
-{
+{		   
+	if (DMA_MEMMAP) {
+		while(!DMA_MEMMAP_DUMPED)
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+		
 	return DMA_INITIALIZED && PROCESS_INITIALIZED;
 }
 
@@ -109,7 +184,7 @@ DWORD DMAHandler::getPID() const
 ULONG64 DMAHandler::getBaseAddress()
 {
 	if (!processInfo.base)
-		processInfo.base = VMMDLL_ProcessGetModuleBase(processInfo.pid, const_cast<LPWSTR>(processInfo.wname));
+		processInfo.base = VMMDLL_ProcessGetModuleBase(this->vHandle, processInfo.pid, const_cast<LPWSTR>(processInfo.wname));
 
 	return processInfo.base;
 }
@@ -123,7 +198,7 @@ void DMAHandler::read(const ULONG64 address, const ULONG64 buffer, const SIZE_T 
 	readSize += size;
 #endif
 
-	VMMDLL_MemReadEx(processInfo.pid, address, reinterpret_cast<PBYTE>(buffer), size, &dwBytesRead, VMMDLL_FLAG_NOCACHE | VMMDLL_FLAG_NOPAGING | VMMDLL_FLAG_ZEROPAD_ON_FAIL | VMMDLL_FLAG_NOPAGING_IO);
+	VMMDLL_MemReadEx(this->vHandle, processInfo.pid, address, reinterpret_cast<PBYTE>(buffer), size, &dwBytesRead, VMMDLL_FLAG_NOCACHE | VMMDLL_FLAG_NOPAGING | VMMDLL_FLAG_ZEROPAD_ON_FAIL | VMMDLL_FLAG_NOPAGING_IO);
 
 	if (dwBytesRead != size)
 		log("Didnt read all bytes requested! Only read %llu/%llu bytes!", dwBytesRead, size);
@@ -132,9 +207,8 @@ void DMAHandler::read(const ULONG64 address, const ULONG64 buffer, const SIZE_T 
 bool DMAHandler::write(const ULONG64 address, const ULONG64 buffer, const SIZE_T size) const
 {
 	assertNoInit();
-	return VMMDLL_MemWrite(processInfo.pid, address, reinterpret_cast<PBYTE>(buffer), size);
+	return VMMDLL_MemWrite(this->vHandle, processInfo.pid, address, reinterpret_cast<PBYTE>(buffer), size);
 }
-
 
 ULONG64 DMAHandler::patternScan(const char* pattern, const std::string& mask, bool returnCSOffset)
 {
@@ -222,11 +296,66 @@ ULONG64 DMAHandler::patternScan(const char* pattern, const std::string& mask, bo
 	return 0;
 }
 
+void DMAHandler::addScatterReadRequest(VMMDLL_SCATTER_HANDLE handle, uint64_t addr, void* bffr, size_t size) {
+	assertNoInit();
+
+	DWORD memoryPrepared = NULL;
+	if (!VMMDLL_Scatter_PrepareEx(handle, addr, size, (PBYTE)bffr, &memoryPrepared)) {
+		log("failed to prepare scatter read at 0x % p\n", addr);
+	}
+}
+
+void DMAHandler::executeReadScatter(VMMDLL_SCATTER_HANDLE handle) {
+	assertNoInit();
+
+	if (!VMMDLL_Scatter_ExecuteRead(handle)) {
+		log("failed to Execute Scatter Read\n");
+	}
+	//Clear after using it
+	if (!VMMDLL_Scatter_Clear(handle, processInfo.pid, NULL)) {
+		log("failed to clear read Scatter\n");
+	}
+}
+
+void DMAHandler::addScatterWriteRequest(VMMDLL_SCATTER_HANDLE handle, uint64_t addr, void* bffr, size_t size) {
+	assertNoInit();
+
+	if (!VMMDLL_Scatter_PrepareWrite(handle, addr, (PBYTE)bffr, size)) {
+		log("failed to prepare scatter write at 0x%p\n", addr);
+	}
+}
+
+void DMAHandler::executeWriteScatter(VMMDLL_SCATTER_HANDLE handle) {
+	assertNoInit();
+
+	if (!VMMDLL_Scatter_Execute(handle)) {
+		log("failed to Execute Scatter write\n");
+	}
+	//Clear after using it
+	if (!VMMDLL_Scatter_Clear(handle, processInfo.pid, NULL)) {
+		log("failed to clear write Scatter\n");
+	}
+}
+
+VMMDLL_SCATTER_HANDLE DMAHandler::createScatterHandle() {
+	assertNoInit();
+
+	VMMDLL_SCATTER_HANDLE ScatterHandle = VMMDLL_Scatter_Initialize(this->vHandle, processInfo.pid, VMMDLL_FLAG_NOCACHE);
+	if (!ScatterHandle) log("failed to create scatter handle\n");
+	return ScatterHandle;
+}
+
+void DMAHandler::closeScatterHandle(VMMDLL_SCATTER_HANDLE handle) {
+	assertNoInit();
+
+	VMMDLL_Scatter_CloseHandle(handle);
+}
+
 void DMAHandler::closeDMA()
 {
 	log("DMA closed!");
 	DMA_INITIALIZED = FALSE;
-	VMMDLL_Close();
+	VMMDLL_Close(this->vHandle);
 }
 
 #if COUNT_TOTAL_READSIZE
