@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <Windows.h>
+#include <vmmdll.h>
 
 // set to FALSE if you dont want to track the total read size of the DMA
 #define COUNT_TOTAL_READSIZE TRUE
@@ -19,7 +20,9 @@ class DMAHandler
 	static inline LibModules modules{};
 
 	static inline BOOLEAN DMA_INITIALIZED = FALSE;
-
+	static inline BOOLEAN DMA_MEMMAP = FALSE;
+	static inline BOOLEAN DMA_MEMMAP_DUMPED = FALSE;
+	static inline BOOLEAN PROCESS_INITIALIZED = FALSE;
 	// Counts the size of the reads in total. Reset every frame preferrably for memory tracking
 	static inline DWORD64 readSize = 0;
 
@@ -35,7 +38,7 @@ class DMAHandler
 
 	BaseProcessInfo processInfo{};
 
-	BOOLEAN PROCESS_INITIALIZED = FALSE;
+	
 
 	// Private log function used by the DMAHandler class
 	static void log(const char* fmt, ...);
@@ -43,15 +46,18 @@ class DMAHandler
 	// Will always throw a runtime error if PROCESS_INITIALIZED or DMA_INITIALIZED is false
 	void assertNoInit() const;
 
-
+private:
+	bool DumpMemoryMap();
+	
 public:
+	VMM_HANDLE vHandle;
 	/**
 	 * \brief Constructor takes a wide string of the process.
 	 * Expects that all the libraries are in the root dir
 	 * \param wname process name
 	 */
-	DMAHandler(const wchar_t* wname);
-
+	DMAHandler(const wchar_t* wname, bool memMap = true);
+	~DMAHandler();
 	// Whether the DMA and Process are initialized
 	bool isInitialized() const;
 
@@ -105,6 +111,17 @@ public:
 		return write(reinterpret_cast<ULONG64>(address), reinterpret_cast<ULONG64>(&value), sizeof(T));
 	}
 
+	//Handle Scatter
+	void addScatterReadRequest(VMMDLL_SCATTER_HANDLE handle, uint64_t addr, void* bffr, size_t size);
+	void executeReadScatter(VMMDLL_SCATTER_HANDLE handle);
+
+	void addScatterWriteRequest(VMMDLL_SCATTER_HANDLE handle, uint64_t addr, void* bffr, size_t size);
+	void executeWriteScatter(VMMDLL_SCATTER_HANDLE handle);
+
+	VMMDLL_SCATTER_HANDLE createScatterHandle();
+	void closeScatterHandle(VMMDLL_SCATTER_HANDLE handle);
+
+
 	/**
 	 * \brief pattern scans the text section and returns 0 if unsuccessful
 	 * \param pattern the pattern
@@ -117,7 +134,7 @@ public:
 	/**
 	 * \brief closes the DMA and sets DMA_INITIALIZED to FALSE
 	 */
-	static void closeDMA();
+	void closeDMA();
 
 #if COUNT_TOTAL_READSIZE
 
