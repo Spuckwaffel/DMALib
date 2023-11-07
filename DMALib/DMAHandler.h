@@ -8,6 +8,7 @@
 
 class DMAHandler
 {
+
 	// Static variables, shared over all instances
 
 	struct LibModules
@@ -19,10 +20,8 @@ class DMAHandler
 
 	static inline LibModules modules{};
 
-	static inline BOOLEAN DMA_INITIALIZED = FALSE;
-	static inline BOOLEAN DMA_MEMMAP = FALSE;
-	static inline BOOLEAN DMA_MEMMAP_DUMPED = FALSE;
-	static inline BOOLEAN PROCESS_INITIALIZED = FALSE;
+	static inline VMM_HANDLE DMA_HANDLE = nullptr;
+
 	// Counts the size of the reads in total. Reset every frame preferrably for memory tracking
 	static inline DWORD64 readSize = 0;
 
@@ -38,7 +37,8 @@ class DMAHandler
 
 	BaseProcessInfo processInfo{};
 
-	
+	BOOLEAN PROCESS_INITIALIZED = FALSE;
+
 
 	// Private log function used by the DMAHandler class
 	static void log(const char* fmt, ...);
@@ -46,18 +46,22 @@ class DMAHandler
 	// Will always throw a runtime error if PROCESS_INITIALIZED or DMA_INITIALIZED is false
 	void assertNoInit() const;
 
-private:
-	bool DumpMemoryMap();
+	// Wow we have friends
+	template<typename> friend class DMAScatter;
+
+	static void retrieveScatter(VMMDLL_SCATTER_HANDLE handle, void* buffer, void* target, SIZE_T size);
+
+	static bool DumpMemoryMap();
 	
 public:
-	VMM_HANDLE vHandle;
 	/**
 	 * \brief Constructor takes a wide string of the process.
 	 * Expects that all the libraries are in the root dir
 	 * \param wname process name
+	 * \param memMap whether the memory map should get dumped to file.
 	 */
 	DMAHandler(const wchar_t* wname, bool memMap = true);
-	~DMAHandler();
+
 	// Whether the DMA and Process are initialized
 	bool isInitialized() const;
 
@@ -112,14 +116,14 @@ public:
 	}
 
 	//Handle Scatter
-	void addScatterReadRequest(VMMDLL_SCATTER_HANDLE handle, uint64_t addr, void* bffr, size_t size);
-	void executeReadScatter(VMMDLL_SCATTER_HANDLE handle);
+	void queueScatterReadEx(VMMDLL_SCATTER_HANDLE handle, uint64_t addr, void* bffr, size_t size) const;
+	void executeScatterRead(VMMDLL_SCATTER_HANDLE handle) const;
 
-	void addScatterWriteRequest(VMMDLL_SCATTER_HANDLE handle, uint64_t addr, void* bffr, size_t size);
-	void executeWriteScatter(VMMDLL_SCATTER_HANDLE handle);
+	void queueScatterWriteEx(VMMDLL_SCATTER_HANDLE handle, uint64_t addr, void* bffr, size_t size) const;
+	void executeScatterWrite(VMMDLL_SCATTER_HANDLE handle) const;
 
-	VMMDLL_SCATTER_HANDLE createScatterHandle();
-	void closeScatterHandle(VMMDLL_SCATTER_HANDLE handle);
+	VMMDLL_SCATTER_HANDLE createScatterHandle() const;
+	void closeScatterHandle(VMMDLL_SCATTER_HANDLE& handle) const;
 
 
 	/**
@@ -132,9 +136,9 @@ public:
 	ULONG64 patternScan(const char* pattern, const std::string& mask, bool returnCSOffset = true);
 
 	/**
-	 * \brief closes the DMA and sets DMA_INITIALIZED to FALSE
+	 * \brief closes the DMA and sets DMA_INITIALIZED to FALSE. Do not call on every object, only at the end of your program.
 	 */
-	void closeDMA();
+	static void closeDMA();
 
 #if COUNT_TOTAL_READSIZE
 
@@ -143,4 +147,45 @@ public:
 	static void resetReadSize();
 
 #endif
+};
+
+template <typename T>
+class DMAScatter
+{
+	T value;
+	void* address;
+	DMAHandler* DMA;
+	VMMDLL_SCATTER_HANDLE handle;
+	bool unknown = true;
+
+	void prepare()
+	{
+		DMA->queueScatterReadEx(handle, reinterpret_cast<uint64_t>(address), &value, sizeof(T));
+	}
+public:
+	DMAScatter(DMAHandler* DMAHandler, VMMDLL_SCATTER_HANDLE handle, void* address)
+		: address(address), DMA(DMAHandler), handle(handle)
+	{
+		if (!handle) DMAHandler::log("Invalid handle!");
+
+		memset(&value, 0, sizeof(T));
+
+		prepare();
+	}
+
+	DMAScatter(DMAHandler* DMAHandler, VMMDLL_SCATTER_HANDLE handle, uint64_t address)
+		: address(reinterpret_cast<void*>(address)), DMA(DMAHandler), handle(handle)
+	{
+		if (!handle) DMAHandler::log("Invalid handle!");
+
+		memset(&value, 0, sizeof(T));
+
+		prepare();
+	}
+
+
+	T& operator*()
+	{
+		return value;
+	}
 };

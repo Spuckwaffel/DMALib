@@ -6,10 +6,10 @@
 
 int main()
 {
-	auto target = DMAHandler(L"target.exe");
+	auto target = DMAHandler(L"MallocTest.exe");
 
 	//not initialized?
-	if(!target.isInitialized())
+	if (!target.isInitialized())
 		DebugBreak();
 
 	//is the PID valid?
@@ -29,10 +29,12 @@ int main()
 	printf("result: %llu\n", res);
 
 	//write to the same address
-	target.write(target.getBaseAddress() + 0x3038, 1337ull);
+	target.write(target.getBaseAddress() + 0x3038, 12345678901122334455);
 
 	//read again
 	res = target.read<uint64_t>(target.getBaseAddress() + 0x3038);
+
+	printf("result: %llu\n", res);
 
 	//Create a handle for scatter
 	auto handle = target.createScatterHandle();
@@ -40,21 +42,36 @@ int main()
 	//When doing scatter reads you can NOT read a pointer and have the next request use that pointer.
 	//The pointer that you add to a scatter request has to be first executed before you can use any of the "Scattered" data.
 	uint64_t res2;
-	target.addScatterReadRequest(handle, target.getBaseAddress() + 0x3038, &res, sizeof(res));
-	target.addScatterReadRequest(handle, target.getBaseAddress() + 0x3040, &res2, sizeof(res2));
-	target.executeReadScatter(handle);
+	target.queueScatterReadEx(handle, target.getBaseAddress() + 0x3038, &res, sizeof(res));
+	target.queueScatterReadEx(handle, target.getBaseAddress() + 0x3040, &res2, sizeof(res2));
+	target.executeScatterRead(handle);
+
 
 	printf("Read Scatter result: %llu\n", res);
 	printf("Read Scatter result2: %llu\n", res2);
 
-	
 	//Always make sure you close your handle
 	target.closeScatterHandle(handle);
 
-	//print the result
-	printf("result: %llu\n", res);
+	//Or you use without a buffer
+
+	handle = target.createScatterHandle();
+
+	//create a DMAScatter object where the typedef is the type, argumments are DMA object pointer, scatter handle and address
+	auto res1_1 = DMAScatter<uint64_t>(&target, handle, target.getBaseAddress() + 0x3038);
+	auto res2_1 = DMAScatter<uint64_t>(&target, handle, target.getBaseAddress() + 0x303C);
+
+	target.executeScatterRead(handle);
+
+	target.closeScatterHandle(handle);
+
+	//print the result via * operator
+	printf("Read Scatter result: %llu\n", *res1_1);
+	printf("Read Scatter result2: %llu\n", *res2_1);
+
+
+	DMAHandler::closeDMA();
 
 	getchar();
-	target.closeDMA();
 	return 0;
 }
